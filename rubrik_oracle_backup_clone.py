@@ -147,12 +147,18 @@ rubrik_oracle_backup_clone.py -s jz-sourcehost-1:ora1db -m /u02/oradata/restore 
     rubrik = rbs_oracle_common.RubrikConnection()
     database = rbs_oracle_common.RubrikRbsOracleDatabase(rubrik, source_host_db[1], source_host_db[0])
     oracle_db_info = database.get_oracle_db_info()
-    # If the source database is on a RAC cluster the target must be a RAC cluster otherwise it will be an Oracle Host
-    if 'racName' in oracle_db_info.keys():
-        if oracle_db_info['racName']:
-            host_id = database.get_rac_id(rubrik.cluster_id, host_target)
+    # If the CDM version is pre 5.2.1 and the source database is on a RAC cluster the target must be a RAC cluster otherwise it will be an Oracle Host
+    cdm_version = rubrik.version.split("-")[0].split(".")
+    if int(cdm_version[0]) < 6 and int(cdm_version[1]) < 3 and (int(cdm_version[1]) < 2 or int(cdm_version[2]) < 1):
+        logger.info("Cluster version {} is pre 5.2.1".format(cdm_version))
+        if 'racName' in oracle_db_info.keys():
+            if oracle_db_info['racName']:
+                target_id = database.get_rac_id(rubrik.cluster_id, host_target)
+            else:
+                target_id = database.get_host_id(rubrik.cluster_id, host_target)
     else:
-        host_id = database.get_host_id(rubrik.cluster_id, host_target)
+        logger.info("Cluster version {}.{}.{} is post 5.2.1".format(cdm_version[0], cdm_version[1], cdm_version[2]))
+        target_id = database.get_target_id(rubrik.cluster_id, host_target)
     # Use the provided time or if no time has been provided use the the most recent recovery point
     if time_restore:
         time_ms = database.epoch_time(time_restore, rubrik.timezone)
@@ -169,7 +175,7 @@ rubrik_oracle_backup_clone.py -s jz-sourcehost-1:ora1db -m /u02/oradata/restore 
     # Get directories in path to allow us to find the new directory after the mount
     live_mount_directories = os.listdir(mount_path)
     logger.warning("Starting the mount of the requested {} backup pieces on {}.".format(source_host_db[1], host_target))
-    live_mount_info = database.live_mount(host_id, time_ms, files_only=True, mount_path=mount_path)
+    live_mount_info = database.live_mount(target_id, time_ms, files_only=True, mount_path=mount_path)
     live_mount_info = database.async_requests_wait(live_mount_info['id'], 20)
     logger.debug("Backup Live Mount Asyc Request: {}".format(live_mount_info))
     logger.info("Async request completed with status: {}".format(live_mount_info['status']))
